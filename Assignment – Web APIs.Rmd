@@ -1,0 +1,83 @@
+---
+title: "Assignment – Web APIs"
+author: "ZIXIAN LIANG"
+date: "2024-03-21"
+output: 
+  html_document:
+     toc: true
+     toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Introduction
+
+The goal of this task is to choose one of the New York Times APIs, construct an interface in R to read in the JSON data, and transform it into an R DataFrame.
+
+
+
+
+
+```{r include=FALSE}
+library(jsonlite)
+library(tidyverse)
+library(httr)
+library(reactable)
+```
+
+
+## Data Acquisition
+
+I focused on articles related to "Cars".
+
+
+```{r include=FALSE}
+api_key <- "8ZG2VBuoomcee7cmOCGAEazy6MAOVQ99"
+```
+
+
+```{r}
+url <- "https://api.nytimes.com/svc/search/v2/articlesearch.json"
+query <- list(q = "Cars", `api-key` = api_key)
+
+response <- GET(url, query = query)
+```
+
+
+
+```{r}
+data <- fromJSON(content(response, "text", encoding = "ISO-8859-1"))
+```
+
+
+## Data Organization
+
+I selected columns provide essential information which are the main headline, original contributors, news desk, abstract, and source URL of the articles.
+
+
+```{r}
+cardata <- as.data.frame(data$response$docs)
+column_data <- cbind(cardata$headline$main,cardata$byline$original,cardata$news_desk,cardata$abstract,cardata$web_url)
+car <- as.data.frame(column_data)
+colnames(car) <- c("Headline", "Contributors", "News desk", "Abstract", "Source")
+```
+
+
+
+## Conclusion
+
+
+I've successfully built an interface in R to retrieve JSON data and convert it into an R DataFrame. Interactive table is generated as shown below.
+
+
+
+```{r}
+reactable(car, bordered = TRUE, striped = TRUE, highlight = TRUE, 
+          filterable = TRUE,  showPageSizeOptions = TRUE, 
+          pageSizeOptions = c(5, 10), defaultPageSize = 5)
+```
+
+
