@@ -1,0 +1,236 @@
+---
+title: "Project 4"
+author: "ZIXIAN LIANG"
+date: "2024-04-21"
+output: 
+  html_document:
+     toc: true
+     toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Introduction
+
+This assignment is to predict the class of document with spam/ham dataset. I choose following corpus from https://spamassassin.apache.org/old/publiccorpus/ for use:
+
+***20030228_easy_ham.tar.bz2***
+
+***20030228_spam.tar.bz2***
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(tidytext)
+library(wordcloud2)
+library(e1071)
+library(gmodels)
+library(R.utils)
+library(tm)
+```
+
+
+## Data Acquisition
+
+
+For project reproducibility, data is directly imported from the website and subsequently unzipped.
+
+
+```{r}
+ham_url <- "https://spamassassin.apache.org/old/publiccorpus/20030228_easy_ham.tar.bz2"
+ham_tmp <- tempfile(fileext = ".tar.bz2")
+download.file(ham_url, ham_tmp, quiet = TRUE)
+bunzip2(ham_tmp, overwrite = TRUE, remove = FALSE)
+untar(gsub(".bz2", "", ham_tmp), exdir = tempdir())
+ham_files_path <- file.path(tempdir(), untar(gsub(".bz2", "", ham_tmp), list = TRUE))
+
+```
+
+```{r}
+spam_url <- "https://spamassassin.apache.org/old/publiccorpus/20030228_spam.tar.bz2"
+spam_tmp <- tempfile(fileext = ".tar.bz2")
+download.file(spam_url, spam_tmp, quiet = TRUE)
+bunzip2(spam_tmp, overwrite = TRUE, remove = FALSE)
+untar(gsub(".bz2", "", spam_tmp), exdir = tempdir())
+spam_files_path <- file.path(tempdir(), untar(gsub(".bz2", "", spam_tmp), list = TRUE))
+```
+
+
+
+
+```{r}
+reademail <- function(path, tag){
+  files <- list.files(path=path, 
+                      full.names=TRUE, 
+                      recursive=TRUE)
+  email <- lapply(files, function(x) {
+    body <- read_file(x)
+    })
+  email <- unlist(email)
+  data <- as.data.frame(email)
+  data$tag <- tag
+  return (data)
+}
+
+ham_doc <- reademail(ham_files_path, tag="ham") 
+spam_doc <- reademail(spam_files_path, tag="spam")
+df <- rbind(ham_doc, spam_doc)
+table(df$tag)
+```
+
+
+Now there are 2501 of "ham" and 501 of "spam" within the dataset.
+
+
+
+## Data Cleaning
+
+Next step to preprocess text to keep what we need.
+
+
+```{r warning=FALSE}
+df<-df %>%
+  mutate(email = str_remove_all(email, pattern = "<.*?>")) %>%
+  mutate(email = str_remove_all(email, pattern = "[:digit:]")) %>%
+  mutate(email = str_remove_all(email, pattern = "[:punct:]")) %>%
+  mutate(email = str_remove_all(email, pattern = "[\n]")) %>%
+  mutate(email = str_to_lower(email)) %>%
+  unnest_tokens(output=text,input=email,
+                token="paragraphs",
+                format="text") %>%
+  anti_join(stop_words, by=c("text"="word"))
+```
+
+
+
+```{r warning=FALSE}
+stopworduse<-function(){
+c(stopwords(),"english")
+}
+
+Content_update <- function(content){
+  contentCorpus <- Corpus(VectorSource(content))
+  contentCorpus <- tm_map(contentCorpus,PlainTextDocument)
+  contentCorpus <- tm_map(contentCorpus, tolower)
+  contentCorpus <- tm_map(contentCorpus,removeNumbers)
+  contentCorpus<- tm_map(contentCorpus,removeWords,stopworduse())
+  contentCorpus <- tm_map(contentCorpus,removePunctuation)
+  contentCorpus <- tm_map(contentCorpus,stripWhitespace)
+  return(contentCorpus)
+}
+
+corpus <- Content_update(df$text)
+
+inspect(corpus[1:2])
+```
+
+
+```{r}
+dtm<-DocumentTermMatrix(corpus)
+dtm
+```
+
+## Data split and Dimensionality Reduction
+
+
+Then, split the corpus and document term matrix into training and testing sets using a 7:3 ratio. And selecting words with frequencies exceeding 100 for dimensionality reduction, as 50 may not suffice.
+
+
+
+```{r}
+corpus.train<-corpus[c(1:1750,2502:2851)]
+corpus.test<-corpus[c(1751:2501,2852:3002)]
+dtm.train<-dtm[c(1:1750,2502:2851),]
+dtm.test<-dtm[c(1751:2501,2852:3002),]
+updated_dtm_train <- as.matrix(dtm.train[1751:2100,])
+sum<- colSums(updated_dtm_train)
+term<-names(sum)
+count<-as.numeric(sum)
+dataframe<-as.data.frame(cbind(term,count),row.names=NULL,optional=F)
+dataframe$count<-as.numeric(dataframe$count)
+head(dataframe)
+```
+
+```{r}
+wordcloud2(dataframe)
+```
+
+
+
+
+```{r}
+countfunction <- function(x,lowfreq=0,highfreq=Inf){
+  stopifnot(inherits(x,c("DocumentTermMatrix","TermDocumentMatrix","simple_triplet_matrix")),
+            is.numeric(lowfreq),is.numeric(highfreq))
+  if(inherits(x,"DocumentTermMatrix"))
+    x<-t(x)
+  rs <- slam::row_sums(x)
+  y <- which(rs >= lowfreq & rs<= highfreq)
+  return(x[y,])
+}
+dict<-Terms(countfunction(dtm.train,100))
+length(dict)
+
+```
+```{r}
+train<-DocumentTermMatrix(corpus.train,list(dictionary=dict))
+train
+```
+
+```{r}
+test<-DocumentTermMatrix(corpus.test,list(dictionary=dict))
+test
+```
+
+
+```{r}
+convert_counts <- function(x){
+  x <- ifelse(x>0,1,0)
+  x <- factor(x, levels=c(0,1),labels=c("No","Yes"))
+  return(x)
+}
+Updated_train <- apply(train, MARGIN=2, convert_counts)
+Updated_test<-apply(test, MARGIN = 2, convert_counts)
+
+```
+
+
+## Model - Naive Bayes
+
+Here I choose to use Naive Bayes because of its robustness in classification task.
+
+
+```{r}
+train_type<-c(rep("ham",1750),rep("spam",350))
+test_type<-c(rep("ham",751),rep("spam",151))
+train_type<-as.data.frame(train_type)
+
+
+model<-naiveBayes(Updated_train,train_type$train_type,laplace=1)
+prediction<-predict(model,Updated_test,type = "class")
+```
+
+
+```{r}
+CrossTable(prediction,test_type,prop.chisq=TRUE,prop.t=FALSE,dnn=c("Prediction","Origin"))
+```
+
+
+
+
+## Conclusion
+
+Overall, the classification model demonstrated strong performance, accurately categorizing the majority of documents. Specifically, it achieved a 97.5% accuracy rate for "ham," correctly classifying 732 out of 751 documents, and a 96.7% accuracy rate for "spam," correctly classifying 146 out of 151 documents. These results show the effectiveness of the Naive Bayes classification model in distinguishing between "ham" and "spam" emails.
+
+
+
+
+
+
+
+
+
+
