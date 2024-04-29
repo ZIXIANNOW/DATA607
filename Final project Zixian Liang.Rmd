@@ -1,0 +1,350 @@
+---
+title: "Data 607 Final Project - Loans"
+author: "ZIXIAN LIANG"
+date: "2024-04-28"
+output: slidy_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(rvest)
+library(ggplot2)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(rminer)
+library(caret)
+```
+
+
+## Introduction
+
+In our daily lives, our basic needs and activities, such as appliances, transportation, and housing, are more or less closely related to loans. From a macro perspective, the existence of loans can stimulate the socio-economic landscape; while from a micro perspective, judicious use of loans can alleviate financial pressure and meet essential life needs, such as purchasing a car or buying a home. Recognizing this, I have decided to focus on analyzing data related to loans. On a macro level, the ideal focus is mortgage loans. I will collect data on mortgage loan applications and interest rates from recent years and visualize this data to observe trends. Typically, a higher interest rate corresponds to fewer loan applications, while a lower interest rate leads to more applications. However, with the impact of the COVID-19 pandemic and the post-pandemic era, where the Federal Reserve has significantly raised interest rates to curb inflation, will the situation remain the same? Under persistently high interest rates, what factors contribute to loan approvals when needed? I will gather data on loan approvals to observe approval trends from a micro perspective. Which variables influence approval? Can machine learning predict loan approvals? I will utilize a portion of the data for training and another portion for testing to evaluate whether the simulation results align with real-world outcomes.
+
+***Citation***:
+
+https://www.lendingtree.com/home/mortgage/u-s-mortgage-market-statistics/
+
+https://www.kaggle.com/datasets/pravinmaurya69/loan-approval-prediction-dataset
+
+
+## Data 1
+
+
+![](web1.png)
+
+```{r echo=TRUE}
+content <- read_html("https://www.lendingtree.com/home/mortgage/u-s-mortgage-market-statistics/")
+
+tables <- content %>% html_table(fill = TRUE)
+
+application_table <- tables[[1]]
+
+application_table
+
+```
+
+
+![](web2.png)
+
+```{r echo=TRUE}
+rate_table <- tables[[3]]
+rate_table
+```
+
+
+## Data transformation
+
+```{r}
+colnames(application_table) <- c("Year", "Mortgage applications (millions)", "Mortgage balances ($ trillions)", "Average mortgage size per account")
+application_table$Year <- str_sub(application_table$Year, -4, -1)
+application_table <- application_table %>%
+  mutate(Year = as.integer(Year))
+ten_year <- application_table %>%
+  left_join(rate_table, by = "Year") %>%
+  filter(between(Year, 2014, 2023)) %>%
+  select(Year, `Mortgage applications (millions)`, `Annual weekly average`)
+colnames(ten_year) <- c("Year", "Mortgage applications (millions)", "Mortgage rate")
+ten_year <- ten_year %>%
+  mutate(Mortgage_rate_num = as.numeric(gsub("%", "", `Mortgage rate`)))
+ten_year
+```
+
+## Plot Draft
+
+```{r}
+ggplot(ten_year, aes(x = Year)) +
+  geom_line(aes(y = `Mortgage applications (millions)`, color = "Mortgage applications (millions)")) +
+  geom_line(aes(y = Mortgage_rate_num, color = "Mortgage_rate_num")) +
+  scale_color_manual(values = c("Mortgage applications (millions)" = "steelblue", "Mortgage_rate_num" = "firebrick")) +
+  labs(
+    title = "Trend of Mortgage accounts and Mortgage rate (2014-2023)",
+    x = "Year",
+    y = "Value",
+    color = "Legend"
+  ) +
+  scale_y_continuous(
+    name = "Mortgage applications (Millions)",
+    sec.axis = sec_axis(~., name = "Mortgage Rate")
+  ) +
+  theme_minimal()
+```
+
+
+## Improved Plot
+
+```{r}
+ten_year_plot <- ten_year %>%
+  mutate(`Mortgage applications (Ten millions)` = `Mortgage applications (millions)` / 10)
+```
+
+
+```{r}
+ggplot(ten_year_plot, aes(x = Year)) +
+  geom_line(aes(y = `Mortgage applications (Ten millions)`, color = "Mortgage applications (Ten millions)")) +
+  geom_line(aes(y = Mortgage_rate_num, color = "Mortgage_rate_num")) +
+  scale_color_manual(values = c("Mortgage applications (Ten millions)" = "steelblue", "Mortgage_rate_num" = "firebrick")) +
+  labs(
+    title = "Trend of Mortgage accounts and Mortgage rate (2014-2023)",
+    x = "Year",
+    y = "Value",
+    color = "Legend"
+  ) +
+  scale_y_continuous(
+    name = "Mortgage applications (Ten millions)",
+    sec.axis = sec_axis(~., name = "Mortgage Rate (%)")
+  ) +
+  theme_minimal()
+```
+
+## Data 2
+
+
+```{r}
+loan_data <- read.csv("https://raw.githubusercontent.com/ZIXIANNOW/DATA607/main/LoanApprovalPrediction.csv")
+glimpse(loan_data)
+```
+
+![](web3.png)
+
+
+
+## Exploratory Data Analysis
+
+
+```{r echo=TRUE}
+colSums(is.na(loan_data))
+```
+
+```{r}
+loan_data$LoanAmount[is.na(loan_data$LoanAmount)] <- median(loan_data$LoanAmount, na.rm = TRUE)
+loan_data$Loan_Amount_Term[is.na(loan_data$Loan_Amount_Term)] <- median(loan_data$Loan_Amount_Term, na.rm = TRUE)
+```
+
+
+
+```{r}
+loan_data$Gender <- as.factor(loan_data$Gender)
+loan_data$Married <- as.factor(loan_data$Married)
+loan_data$Loan_Status <- as.factor(loan_data$Loan_Status)
+loan_data$Dependents[is.na(loan_data$Dependents)] <- 0
+loan_data$Credit_History[is.na(loan_data$Credit_History)] <- 0
+loan_data$Credit_History <- as.factor(loan_data$Credit_History)
+loan_data$Education <- as.factor(loan_data$Education)
+loan_data$Self_Employed <- as.factor(loan_data$Self_Employed)
+loan_data$Property_Area <- as.factor(loan_data$Property_Area)
+```
+
+
+```{r}
+colSums(is.na(loan_data))
+```
+
+
+
+```{r}
+loan_data <- loan_data %>% 
+  relocate(Loan_Status, .before = everything())
+n <- nrow(loan_data)
+summary(loan_data)
+```
+
+
+
+
+```{r}
+glimpse(loan_data)
+```
+
+
+
+
+
+## Decision Tree 1 - Non_numeric_loan_data
+
+```{r}
+non_numeric_loan_data <- loan_data[, c("Loan_Status","Married","Dependents","Education" ,"Property_Area","Self_Employed"  )]
+set.seed(2024)
+size70 <- sample(seq_len(n),size = round(0.7 * n))
+train_data1 <- non_numeric_loan_data[size70,]
+test_data1 <- non_numeric_loan_data[-size70,]
+decision_tree1 <- rpart(Loan_Status ~ ., data = train_data1, method = "class")
+rpart.plot(decision_tree1)
+```
+
+
+
+
+
+```{r}
+decision_tree1_mirror <- predict(decision_tree1,test_data1, type = "class")
+decision_tree1_mirror <- as.data.frame(decision_tree1_mirror)
+mirror1 <- cbind(decision_tree1_mirror,test_data1)
+result1 <- table(mirror1$Loan_Status,mirror1$decision_tree1_mirror,dnn = c("From Data","Prediction"))
+result1
+```
+
+
+
+```{r}
+accuracy1 <- sum(diag(result1)) / sum(result1)
+accuracy1
+```
+
+
+
+
+## Decision Tree 2 - Numeric_loan_data
+
+
+```{r}
+non_numeric_columns <- names(loan_data)[!sapply(loan_data, is.numeric) & names(loan_data) != "Loan_Status"]
+```
+
+
+
+```{r}
+numeric_loan_data <- loan_data[, !(names(loan_data) %in% non_numeric_columns)]
+set.seed(2024)
+size70 <- sample(seq_len(n),size = round(0.7 * n))
+train_data2 <- numeric_loan_data[size70,]
+test_data2 <- numeric_loan_data[-size70,]
+decision_tree2 <- rpart(Loan_Status ~ ., data = train_data2, method = "class")
+rpart.plot(decision_tree2)
+```
+
+
+
+
+
+
+
+```{r}
+decision_tree2_mirror <- predict(decision_tree2,test_data2, type = "class")
+decision_tree2_mirror <- as.data.frame(decision_tree2_mirror)
+mirror2 <- cbind(decision_tree2_mirror,test_data2)
+result2 <- table(mirror2$Loan_Status,mirror2$decision_tree2_mirror,dnn = c("From Data","Prediction"))
+result2
+```
+
+
+
+
+
+
+
+```{r}
+accuracy2 <- sum(diag(result2)) / sum(result2)
+accuracy2
+```
+
+
+
+
+## Random Forest 3
+
+
+
+```{r}
+X <- loan_data[, !(colnames(loan_data) %in% c("Loan_Status", "Loan_ID"))]
+Y <- loan_data$Loan_Status
+model <- train(x = X, y = Y, method = "rf")
+selected_features <- varImp(model)
+```
+
+
+```{r}
+selected_features
+```
+
+
+
+```{r}
+important_features <- rownames(selected_features$importance)[selected_features$importance$Overall > 0]
+```
+
+
+
+```{r}
+loan_data_selected <- loan_data[, c("Loan_Status",important_features)]
+```
+
+```{r}
+set.seed(2024)
+size70 <- sample(seq_len(n),size = round(0.7 * n))
+train_data3 <- loan_data_selected[size70,]
+test_data3 <- loan_data_selected[-size70,]
+random_forest_model <- randomForest(Loan_Status ~ ., data = train_data3)
+random_forest_model
+```
+
+
+
+
+```{r}
+plot(random_forest_model)
+```
+
+
+
+
+```{r}
+random_forest_mirror <- predict(random_forest_model,test_data3, type = "class")
+confusionMatrix(random_forest_mirror, test_data3$Loan_Status)
+```
+
+
+
+## Random Forest Tuning
+
+
+```{r}
+feature_split <- setdiff(x = names(train_data3), y = "Loan_Status")
+set.seed(2024)
+tuneRF(x = train_data3[feature_split], y = train_data3$Loan_Status, mtryStart = 1 , ntreeTry = 300 )
+```
+
+
+```{r echo=TRUE}
+tuning_rf_model <- randomForest(Loan_Status ~ ., data = train_data3, ntree = 300, mtry = 2,
+                                do.trace = 100)
+```
+
+
+
+```{r echo=TRUE}
+random_forest_mirror2 <- predict(tuning_rf_model,test_data3, type = "class")
+confusionMatrix(random_forest_mirror2, test_data3$Loan_Status)
+```
+
+
+## Conclusion
+
+
+In general, fluctuations in interest rates do indeed tend to correspond with decreases or increases in loan application volumes. However, as I speculated, this relationship is not absolute. According to the ggplot geomline chart spanning the past decade, we can observe that from 2014 to 2016, despite a decline in interest rates, loan application volumes were also decreasing. Conversely, starting in 2021, as the post-COVID market began to recover, despite interest rates rising by as much as 4%, loan application volumes continued to steadily increase. Therefore, it is evident that interest rates are not the sole determinant of loan application volumes; market demand plays a more crucial role. On the other hand, through training and testing loan approvals using decision trees and random forests, we can conclude that factors such as individual qualifications and income standards can only predict accuracy to a certain extent, with an accuracy score of 0.7486. This suggests that approximately 25% of the dataset remains unexplained. Therefore, it is evident that besides meeting explicit criteria, there are additional factors influencing loan approval. It could be that when there is an overwhelming number of loan applicants at the same time, banks may adopt a selective approach in approving loans, prioritizing applicants with stronger financial profiles or meeting specific criteria.
